@@ -2,9 +2,8 @@ name: Zampto Server Auto Renew
 
 on:
   schedule:
-    # Chạy mỗi 35 phút để đảm bảo không quá hạn 1 tiếng và tiết kiệm quota
-    - cron: '*/35 * * * *'
-  workflow_dispatch: # Cho phép nhấn nút chạy thủ công để test
+    - cron: '*/5 * * * *'
+  workflow_dispatch:
 
 jobs:
   renew:
@@ -28,6 +27,14 @@ jobs:
       - name: Run Renew Script
         env:
           TWOCAPTCHA_API_KEY: ${{ secrets.TWOCAPTCHA_API_KEY }}
-          ZAMPTO_COOKIE: ${{ secrets.ZAMPTO_COOKIE }}
-          ZAMPTO_SERVER_ID: ${{ secrets.ZAMPTO_SERVER_ID }}
+          ZAMPTO_EMAIL: ${{ secrets.ZAMPTO_EMAIL }}
+          ZAMPTO_PASSWORD: ${{ secrets.ZAMPTO_PASSWORD }}
         run: python renew.py
+
+      - name: Upload Screenshots as Artifacts
+        if: always() # Luôn lưu ảnh kể cả khi script bị lỗi
+        uses: actions/upload-artifact@v4
+        with:
+          name: zampto-step-screenshots
+          path: screenshots/
+          retention-days: 3
