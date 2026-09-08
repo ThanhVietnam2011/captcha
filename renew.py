@@ -35,38 +35,44 @@ def main():
     os.makedirs("screenshots", exist_ok=True)
 
     with sync_playwright() as p:
-        browser = p.chromium.launch(headless=True)
-        context = browser.new_context(viewport={"width": 1280, "height": 720})
+        # Giả lập Chrome thật để tránh bị Cloudflare chặn trên GitHub Actions
+        browser = p.chromium.launch(
+            headless=True,
+            args=["--no-sandbox", "--disable-setuid-sandbox"]
+        )
+        context = browser.new_context(
+            user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
+            viewport={"width": 1280, "height": 720}
+        )
         page = context.new_page()
 
-        # BƯỚC 1: Truy cập trang chủ https://zampto.net/
+        # BƯỚC 1: Vào trang chủ https://zampto.net/
         print("[1] Đang truy cập trang chủ: https://zampto.net/")
         page.goto("https://zampto.net/", wait_until="domcontentloaded")
         page.wait_for_timeout(2000)
         print(f"    -> URL hiện tại: {page.url}")
         page.screenshot(path="screenshots/1_home_page.png")
 
-        # BƯỚC 2: Tìm nút/link Login và chuyển đến trang Đăng nhập
+        # BƯỚC 2: Tìm nút Login và ép Playwright điều hướng sang trang Đăng nhập
         print("[2] Đang tìm liên kết 'Login' trên trang chủ...")
-        login_element = page.locator('a[href*="login"], a:has-text("Login"), button:has-text("Login")').first
-        
-        # Lấy href của nút Login nếu có
-        login_href = login_element.get_attribute("href")
-        
+        login_href = None
+        try:
+            login_elem = page.locator('a[href*="login"], a[href*="dash"], a:has-text("Login"), button:has-text("Login")').first
+            login_href = login_elem.get_attribute("href")
+        except Exception:
+            pass
+
         if login_href:
             if not login_href.startswith("http"):
                 login_href = "https://zampto.net" + login_href
-            print(f"    -> Tìm thấy link Login: {login_href}. Đang chuyển trang...")
-            page.goto(login_href, wait_until="networkidle")
+            print(f"    -> Lấy được link Login: {login_href}. Đang chuyển trang...")
+            page.goto(login_href, wait_until="domcontentloaded")
         else:
-            print("    -> Click trực tiếp nút Login...")
-            with context.expect_page(timeout=5000) as new_page_info:
-                login_element.click()
-            page = new_page_info.value
+            print("    -> Không lấy được href, chuyển thẳng tới https://dash.zampto.net/")
+            page.goto("https://dash.zampto.net/", wait_until="domcontentloaded")
 
-        page.wait_for_load_state("networkidle")
-        page.wait_for_timeout(3000)
-        print(f"    -> URL hiện tại: {page.url}")
+        page.wait_for_timeout(4000)
+        print(f"    -> URL hiện tại (Trang Login): {page.url}")
         page.screenshot(path="screenshots/2_login_page.png")
 
         # BƯỚC 3: Điền Email và Password
@@ -75,43 +81,47 @@ def main():
         pass_selector = 'input[type="password"], input[name="password"]'
         
         try:
-            page.wait_for_selector(email_selector, timeout=15000)
+            page.wait_for_selector(email_selector, timeout=20000)
         except Exception:
-            page.screenshot(path="screenshots/error_login_not_found.png")
-            raise Exception(f"Không tìm thấy ô nhập Email tại URL: {page.url}. Hãy kiểm tra screenshot 2_login_page.png!")
+            page.screenshot(path="screenshots/error_login_form_not_found.png")
+            raise Exception(f"Không tìm thấy ô nhập Email tại URL: {page.url}. Hãy kiểm tra ảnh screenshots/2_login_page.png!")
 
         page.fill(email_selector, ZAMPTO_EMAIL)
         page.fill(pass_selector, ZAMPTO_PASSWORD)
 
-        # BƯỚC 4: Nhấn nút Login
-        print("[4] Đang nhấn nút Login để đăng nhập...")
+        # BƯỚC 4: Nhấn nút Login để vào Dashboard
+        print("[4] Đang nhấn nút 'Login'...")
         submit_btn = page.locator('button[type="submit"], button:has-text("Login"), input[type="submit"]').first
         submit_btn.click()
 
-        page.wait_for_load_state("networkidle")
-        page.wait_for_timeout(4000)
-        print(f"    -> URL hiện tại: {page.url}")
+        page.wait_for_timeout(5000)
+        print(f"    -> URL hiện tại (Sau Login): {page.url}")
         page.screenshot(path="screenshots/3_after_login.png")
 
         # BƯỚC 5: Tìm và bấm nút "View Server"
-        print("[5] Đang tìm và nhấn 'View Server'...")
+        print("[5] Đang tìm và nhấn nút 'View Server'...")
         view_server_btn = page.locator('a:has-text("View Server"), button:has-text("View Server"), a[href*="server"]').first
         
-        server_href = view_server_btn.get_attribute("href")
+        server_href = None
+        try:
+            server_href = view_server_btn.get_attribute("href")
+        except Exception:
+            pass
+
         if server_href:
             if not server_href.startswith("http"):
                 server_href = "https://dash.zampto.net" + server_href
-            page.goto(server_href, wait_until="networkidle")
+            print(f"    -> Chuyển hướng tới chi tiết Server: {server_href}")
+            page.goto(server_href, wait_until="domcontentloaded")
         else:
             view_server_btn.click()
 
-        page.wait_for_load_state("networkidle")
-        page.wait_for_timeout(3000)
-        print(f"    -> URL hiện tại: {page.url}")
+        page.wait_for_timeout(4000)
+        print(f"    -> URL hiện tại (Trang Chi tiết Server): {page.url}")
         page.screenshot(path="screenshots/4_server_details.png")
 
-        # BƯỚC 6: Lấy Cloudflare Turnstile Sitekey & Giải Captcha
-        print("[6] Đang quét lấy Turnstile Sitekey...")
+        # BƯỚC 6: Quét Turnstile Sitekey & Giải Captcha bằng 2Captcha
+        print("[6] Đang quét lấy Cloudflare Turnstile Sitekey...")
         try:
             turnstile_elem = page.wait_for_selector("[data-sitekey]", timeout=15000)
             sitekey = turnstile_elem.get_attribute("data-sitekey")
@@ -131,7 +141,7 @@ def main():
             page.screenshot(path="screenshots/error_no_sitekey.png")
             raise ValueError(f"Không tìm thấy Turnstile Sitekey tại URL: {page.url}!")
 
-        print(f"    -> Tìm thấy Sitekey: {sitekey}")
+        print(f"    -> Tìm thấy Turnstile Sitekey: {sitekey}")
         token = solve_turnstile(sitekey, page.url)
 
         # Chèn Token giải được vào Cloudflare input
@@ -146,9 +156,9 @@ def main():
         renew_button.click()
 
         page.wait_for_timeout(5000)
-        print(f"    -> URL hiện tại: {page.url}")
+        print(f"    -> URL hiện tại (Hoàn tất): {page.url}")
         page.screenshot(path="screenshots/5_renew_completed.png")
-        print("[+] Hoàn tất! Đã gia hạn thành công!")
+        print("[+] Hoàn tất! Đã gửi lệnh Renew Server thành công!")
 
         browser.close()
 
